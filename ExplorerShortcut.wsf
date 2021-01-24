@@ -1,0 +1,235 @@
+<?xml version='1.0' encoding='Shift_JIS' ?>
+<package>
+	<!-- ==================================================================================================== -->
+	<!-- ※※※ 修正時には、Default JOB である "Install" を先頭から移動しないように注意 ※※※ -->
+	<!-- ==================================================================================================== -->
+	<job id="Install">
+		<runtime>
+			<description>
+<![CDATA[
+このファイルのJOBをSendToに登録します。
+]]>
+			</description>
+			<named
+				name="uninstall"
+				helpstring="これを設定すると、ショートカットを削除します。"
+				type="boolean"
+				required="false"
+			/>
+		</runtime>
+		<object id="Shell" progid="WScript.Shell"/>
+		<object id="Network" progid="WScript.Network"/>
+		<object id="fso" progid="Scripting.FileSystemObject"/>
+		<object id="dom" progid="Msxml.DOMDocument"/>
+		<script language="VBScript" src="Lib/Common.vbs"/>
+		<script language="VBScript" src="Lib/Shortcut.vbs"/>
+		<script language="VBScript">
+<![CDATA[
+			Option Explicit
+
+			Const toolName = "ExplorerShortcut ツール"
+
+			' スクリプトの情報を収集する
+			Dim ScriptName, ScriptPath, ShortcutPath
+			ScriptName = WScript.ScriptFullName
+			ScriptPath = fso.GetParentFolderName(ScriptName)
+			ShortcutPath = Shell.SpecialFolders("SendTo")
+
+			' <registration>を読んで登録／登録解除の処理をする
+			dom.Load ScriptName
+			Dim unInstall, job
+			unInstall = WScript.Arguments.Named.Exists("uninstall")
+			If unInstall Then
+				MsgBox "Send To から " & WScript.ScriptName & " 関連のショートカットを抹消します。", , WScript.ScriptName
+			Else
+				MsgBox "Send To に " & WScript.ScriptName & " 関連のショートカットを登録します。" _
+					& vbLF & "抹消時は /uninstall を付けて起動してください。", , WScript.ScriptName
+			End If
+			For Each job in dom.selectNodes("/package/job/registration")
+				If unInstall Then
+					' 登録解除
+					Dim ShortcutName
+					ShortcutName = fso.BuildPath(ShortcutPath, job.getAttribute("name") & ".lnk")
+					If fso.FileExists(ShortcutName) Then fso.DeleteFile ShortcutName, true
+				Else
+					' SendTo に登録
+					' CreateJobShortcut job-id, shortcut-name, description
+					Dim ign
+					If IsNull(job.getAttribute("ignore")) Then
+						ign = false
+					ElseIf UCase(job.getAttribute("ignore"))<>"TRUE" Then
+						ign = false
+					Else
+						ign = true
+					End If
+					If Not ign Then
+						CreateJobShortcut _
+							ShortcutPath _
+						,	job.parentNode.getAttribute("id") _
+						,	job.getAttribute("name") _
+						,	job.getAttribute("description") _
+						,	job.getAttribute("icon") _
+						,	job.getAttribute("arg")
+					End If
+				End If
+			Next
+
+			If unInstall Then
+				' アンインストール用のショートカット
+				Dim lnkPath
+				lnkPath = fso.BuildPath(ScriptPath, toolName & "のアンインストール.lnk")
+				If fso.FileExists(lnkPath) Then fso.DeleteFile lnkPath, true
+			Else
+				' スタートメニューに管理用ショートカット登録
+				Dim StartPath
+				If IsPostWin7 Then
+					' Windows7 以降では、スタートがメニューではなくなったので、作成場所を Quick Launch に移動
+					StartPath = QuickLaunchPath
+				Else
+					'StartPath = Shell.SpecialFolders("AllUsersStartMenu")
+					StartPath = Shell.SpecialFolders("StartMenu")
+				End If
+				StartPath = fso.BuildPath(StartPath, "ショートカット")
+				If Not fso.FolderExists(StartPath) Then fso.CreateFolder StartPath
+
+				ShortcutPath = fso.BuildPath(StartPath, "new")
+				If Not fso.FolderExists(ShortcutPath) Then fso.CreateFolder ShortcutPath
+				ShortcutPath = fso.BuildPath(StartPath, "管理")
+				If Not fso.FolderExists(ShortcutPath) Then fso.CreateFolder ShortcutPath
+
+				' AllUsers
+				CreateSpecialFolderShortcut ShortcutPath, Shell.SpecialFolders("AllUsersStartMenu")
+				CreateSpecialFolderShortcut ShortcutPath, Shell.SpecialFolders("AllUsersDesktop")
+
+				' ユーザ固有
+				ShortcutPath = fso.BuildPath(ShortcutPath, Network.UserName & "." & Network.UserDomain)
+				If Not fso.FolderExists(ShortcutPath) Then fso.CreateFolder ShortcutPath
+				CreateSpecialFolderShortcut ShortcutPath, Shell.SpecialFolders("SendTo")
+				CreateSpecialFolderShortcut ShortcutPath, Shell.SpecialFolders("StartMenu")
+				CreateSpecialFolderShortcut ShortcutPath, QuickLaunchPath
+				CreateSpecialFolderShortcut ShortcutPath, shell.SpecialFolders("Desktop")
+
+				' アンインストール用のショートカット
+				CreateJobShortcut _
+					ScriptPath _
+				,	"Install" _
+				,	toolName & "のアンインストール" _
+				,	WScript.ScriptName & "をアンインストールします。" _
+				,	"ExplorerShortcut.ico" _
+				,	"/uninstall"
+			End If
+
+			WScript.Quit
+
+		' --------------------------------------------------------------------------------
+		Sub CreateSpecialFolderShortcut(lnkPath, path)
+			If fso.FolderExists(path) Then
+				CreateExplorerFolderShortcut lnkPath, path, True
+			Else
+				MsgBox lnkPath & " として作成しようとした" & vbLf _
+					& path & vbLf & _
+					" が存在しませんでした。"
+			End If
+		End Sub
+
+		' --------------------------------------------------------------------------------
+		' このスクリプト内のJOBに対するショートカットを新規作成
+		Sub CreateJobShortcut(lnkPath, id, name, description, icon, arg)
+			Dim Shortcut, lnkFilePath, iconFile
+			lnkFilePath = fso.BuildPath(lnkPath, name & ".lnk")
+			iconFile = fso.BuildPath(ScriptPath, icon)
+			If fso.FileExists(lnkFilePath) Then fso.DeleteFile lnkFilePath, true
+			With Shell.CreateShortcut(lnkFilePath)
+				.Description = description
+				If fso.FileExists(iconFile) Then
+					.IconLocation = iconFile
+				Else
+					.IconLocation = WScript.Path & "\wscript.exe,2"
+				End If
+				.TargetPath = WScript.Path & "\wscript.exe"
+				.Arguments = """" & ScriptName & """ //JOB:" & id & " " & arg
+				.WindowStyle = 1			' 通常のウィンドウ
+				.WorkingDirectory = ScriptPath
+				.Save
+			End With
+		End Sub
+]]>
+		</script>
+	</job>
+
+	<!-- ==================================================================================================== -->
+	<!-- テンプレート -->
+	<!-- ==================================================================================================== -->
+	<job id="Template">
+		<registration name="Start Menu に表示する名前" description="説明" ignore="true"/>
+		<runtime>
+			<description>
+<![CDATA[
+JOBのテンプレートです。
+ignore='true' を外して Install JOBを実行すると start メニューに登録します。
+]]>
+			</description>
+		</runtime>
+		<object id="ShellApp" progid="Shell.Application"/>
+		<object id="Shell" progid="WScript.Shell"/>
+		<object id="fso" progid="Scripting.FileSystemObject"/>
+		<object id="dom" progid="Msxml2.DOMDocument"/>
+		<script language="VBScript">
+<![CDATA[
+			Option Explicit
+]]>
+		</script>
+	</job>
+
+	<!-- ==================================================================================================== -->
+	<!-- ショートカットを作成 -->
+	<!-- ==================================================================================================== -->
+	<job id="CreateShortcut">
+		<registration name="ショートカットを作成" description="ショートカットを作成" icon="ExplorerShortcut.ico"/>
+		<runtime>
+			<description>
+<![CDATA[
+ショートカットを作成。
+]]>
+			</description>
+		</runtime>
+		<object id="Shell" progid="WScript.Shell"/>
+		<object id="fso" progid="Scripting.FileSystemObject"/>
+		<script language="VBScript" src="Lib/Common.vbs"/>
+		<script language="VBScript" src="Lib/Shortcut.vbs"/>
+		<script language="VBScript">
+<![CDATA[
+			Option Explicit
+
+			Dim Args, idxArg
+			Set Args = WScript.Arguments
+
+			Dim StartPath, ShortcutPath
+			If IsPostWin7 Then
+				' Windows7 以降では、スタートがメニューではなくなったので、作成場所を Quick Launch に移動
+				StartPath = QuickLaunchPath
+			Else
+				'StartPath = Shell.SpecialFolders("AllUsersStartMenu")
+				StartPath = Shell.SpecialFolders("StartMenu")
+			End If
+			ShortcutPath = fso.BuildPath(StartPath, "ショートカット")
+			If Not fso.FolderExists(ShortcutPath) Then fso.CreateFolder ShortcutPath
+			ShortcutPath = fso.BuildPath(ShortcutPath, "new")
+			If Not fso.FolderExists(ShortcutPath) Then fso.CreateFolder ShortcutPath
+
+			If Args.Count<>0 Then
+				Dim arg
+				For idxArg = 0 to Args.Count - 1
+					arg = Args(idxArg)
+					If fso.FolderExists(arg) Then
+						CreateExplorerFolderShortcut ShortcutPath, arg, False
+					ElseIf fso.FileExists(arg) Then
+						CreateExplorerFileShortcut ShortcutPath, arg, False
+					End If
+				Next
+			End If
+]]>
+		</script>
+	</job>
+
+</package>

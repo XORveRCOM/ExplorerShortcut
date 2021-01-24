@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<project name="ExplorerShortcut" zippath="zip">
+	<!-- スクリプト -->
+	<include name="ExplorerShortcut.wsf"/>
+	<include name="ExplorerShortcut.ico"/>
+	<include name="Lib/Shortcut.vbs"/>
+	<include name="Lib/Common.vbs"/>
+
+	<include name="ExplorerShortcut.zipping"/>
+
+<!-- 除外ファイル設定例 -->
+	<exclude name="**/bin/**/*.xml"/>
+	<exclude name="**/obj/**"/>
+	<exclude name="_UpgradeReport_Files/**"/>
+	<exclude name="UpgradeLog.XML"/>
+</project>
